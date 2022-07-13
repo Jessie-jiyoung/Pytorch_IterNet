@@ -10,6 +10,7 @@ import torch.nn as nn
 import time
 from tensorboardX import SummaryWriter
 import torch.nn.functional as F
+import random
 
 
 def get_w_from_pixel_distribution(gt, lamb=1):
@@ -40,7 +41,14 @@ def weighted_bce_loss(output, target, w1, w2):
 
 if __name__ == "__main__":
 
-    
+    random_seed = 2022
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(random_seed)
+    random.seed(random_seed)
+
     netname = 'iternet'
     num_epochs = 1000
     eps = 1e-6    
@@ -51,7 +59,7 @@ if __name__ == "__main__":
     # from torchsummary import summary
     # summary(model, input_size=(3, 512, 512))
 
-    loader = get_loader(image_dir='./data/', batch_size=2, mode='train')
+    loader, val_loader= get_loader(image_dir='./data/', batch_size=2, mode='train')
     total_iter = len(loader)
 
     lr = 1e-3
@@ -65,10 +73,12 @@ if __name__ == "__main__":
     bce = nn.BCELoss()
 
     losses = []
+    val_losses = []
     summary = SummaryWriter()
     for epoch in range(num_epochs):
         for i, (ximg, yimg) in enumerate(loader):
 
+            model.train()
             ximg = ximg.to(device)
             yimg = yimg.to(device)
 
@@ -101,6 +111,34 @@ if __name__ == "__main__":
 
             summary.add_scalar(f'loss/loss', loss.item(), iter_count)
 
+            if (i+1) % 5 == 0:
+                model.eval()
+                with torch.no_grad():
+                    val_loss = 0.0
+                    for j, (ximg, yimg) in enumerate(val_loader):
+                        ximg = ximg.to(device)
+                        yimg = yimg.to(device)
+
+                        y1, y2, y3, y4 = model(ximg)
+
+                        w1, w2 = get_w_from_pixel_distribution(yimg)
+
+                        loss1 = weighted_bce_loss(y1, yimg, w1, w2)
+                        loss2 = weighted_bce_loss(y2, yimg, w1, w2)
+                        loss3 = weighted_bce_loss(y3, yimg, w1, w2)
+                        loss4 = weighted_bce_loss(y4, yimg, w1, w2)
+
+                        lambda1 = 1e-1
+                        lambda2 = 2e-1
+                        lambda3 = 3e-1
+                        lambda4 = 4e-1
+
+                        val_loss  = lambda1*loss1 + lambda2*loss2 + lambda3*loss3 + lambda4*loss4
+                        val_losses.append(val_loss.item())
+                        print(f'Iter: {j+1:03d}/{len(val_loader):03d}, ', end='')
+                        print(f'Loss: {val_losses[-1]:.5f}, ', end='')
+                        print()
+            
         summary.add_image(f'image/input', ximg[0], epoch)
         summary.add_image(f'image/output4', y4[0], epoch)
         summary.add_image(f'image/output3', y3[0], epoch)
