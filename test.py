@@ -12,17 +12,23 @@ import random
 
 from sklearn.metrics import confusion_matrix, f1_score, jaccard_score
 
-def mIoU(pred_mask, mask, smooth=1e-10, n_classes=1):
+def mIoU(pred_mask, mask, smooth=1e-10, n_classes=2):
     with torch.no_grad():
-        pred_mask = F.softmax(pred_mask, dim=1)
-        pred_mask = torch.argmax(pred_mask, dim=1)
+        threshold = 0.1
+        pred_mask[pred_mask >= threshold] = 1
+        pred_mask[pred_mask < threshold] = 0
+        
+        #pred_mask = F.softmax(pred_mask, dim=1)
+        #print(pred_mask)
+        #pred_mask = torch.argmax(pred_mask, dim=1)
+        #print(pred_mask)
         pred_mask = pred_mask.contiguous().view(-1)
+        #print(pred_mask.shape)
         mask = mask.contiguous().view(-1)
-
-        print(pred_mask)
 
         iou_per_class = []
         for clas in range(0, n_classes): #loop per pixel class
+            print(clas)
             true_class = pred_mask == clas
             true_label = mask == clas
 
@@ -34,7 +40,7 @@ def mIoU(pred_mask, mask, smooth=1e-10, n_classes=1):
 
                 iou = (intersect + smooth) / (union +smooth)
                 iou_per_class.append(iou)
-                
+        print(np.nanmean(iou_per_class))    
         return np.nanmean(iou_per_class)
 
 def pixel_accuracy(output, mask):
@@ -49,14 +55,20 @@ def f1(pred_mask, mask):
         pred_mask = pred_mask.view(-1)
         threshold_confusion = 0.1
         print("\nConfusion matrix:  Costum threshold (for positive) of " + str(threshold_confusion))
+        pred_mask[pred_mask >= threshold_confusion] = 1
+        pred_mask[pred_mask < threshold_confusion] = 0
+
+
+        """
         y_pred = np.empty((pred_mask.shape[0]))
         for i in range(pred_mask.shape[0]):
             if pred_mask[i] >= threshold_confusion:
                 y_pred[i] = 1
             else:
                 y_pred[i] = 0
-        
+        """
         #mask=np.reshape(mask.cpu(), (2,512,512))
+        y_pred = pred_mask.view(-1).cpu()
         mask = mask.view(-1)
         mask = np.array(mask.cpu())
         # F1 score
@@ -113,7 +125,7 @@ def test():
     model.load_state_dict(torch.load('./models/weights/iternet_model_epoch_1000.pth'))
     model.eval()
 
-    test_loader = get_loader(image_dir='./data/', batch_size=2, mode='test')
+    test_loader = get_loader(image_dir='./data/', batch_size=1, mode='test')
 
     since = time.time()
     for i, (x_img, y_img) in enumerate(test_loader):
